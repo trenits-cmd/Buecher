@@ -22,6 +22,10 @@ Der Token bleibt nur im Arbeitsspeicher der laufenden App und wird nach einem Ap
 ./gradlew :app:assembleDebug
 ```
 
+## APK von GitHub herunterladen
+
+Nach Commit und Push des Workflows findest du `buecherregal-apk` unter **Actions → Android APK → letzter erfolgreicher Lauf → Artifacts**. Ein Push eines Versions-Tags wie `v1.0.0` erstellt zusätzlich ein GitHub Release mit `app-debug.apk` im Bereich **Releases** des Repositories. Das APK ist debug-signiert und für Installation und Tests gedacht.
+
 ## JSON-Format
 
 ```json
