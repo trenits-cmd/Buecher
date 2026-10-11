@@ -54,7 +54,7 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
                 _state.update { it.copy(books = books, isLoading = false, notice = "${books.size} Bücher geladen") }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                _state.update { it.copy(isLoading = false, error = error.messageForUser()) }
+                _state.update { it.copy(isLoading = false, error = error.messageForUser("GitHub")) }
             }
         }
     }
@@ -87,7 +87,7 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                _state.update { it.copy(lookupLoading = false, lookupError = error.messageForUser()) }
+                _state.update { it.copy(lookupLoading = false, lookupError = error.messageForUser("Google Books")) }
             }
         }
     }
@@ -109,7 +109,7 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
                 _state.update { it.copy(books = books, isLoading = false, notice = successMessage) }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                _state.update { it.copy(isLoading = false, error = error.messageForUser()) }
+                _state.update { it.copy(isLoading = false, error = error.messageForUser("GitHub")) }
             }
         }
     }
@@ -123,17 +123,26 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
         return true
     }
 
-    private fun Exception.messageForUser(): String = when (this) {
-        is retrofit2.HttpException -> when (code()) {
-            401, 403 -> "GitHub-Zugriff verweigert. Token und Repository-Berechtigungen prüfen."
-            404 -> "Repository oder Datei buecher.json wurde nicht gefunden."
-            else -> "GitHub-Anfrage fehlgeschlagen (HTTP ${code()})"
-        }
-        else -> localizedMessage ?: "Anfrage fehlgeschlagen"
-    }
+    private fun Exception.messageForUser(service: String): String = formatHttpError(this, service)
 
     class Factory(private val repository: BookRepository) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = BookViewModel(repository) as T
     }
+}
+
+internal fun formatHttpError(error: Throwable, service: String): String = when (error) {
+    is retrofit2.HttpException -> when (service) {
+        "GitHub" -> when (error.code()) {
+            401, 403 -> "GitHub-Zugriff verweigert. Token und Repository-Berechtigungen prüfen."
+            404 -> "Repository oder Datei buecher.json wurde nicht gefunden."
+            else -> "GitHub-Anfrage fehlgeschlagen (HTTP ${error.code()})"
+        }
+        "Google Books" -> when (error.code()) {
+            401, 403, 429 -> "Google Books-Anfrage fehlgeschlagen (HTTP ${error.code()})"
+            else -> "Google Books-Anfrage fehlgeschlagen (HTTP ${error.code()})"
+        }
+        else -> "$service-Anfrage fehlgeschlagen (HTTP ${error.code()})"
+    }
+    else -> error.localizedMessage ?: "$service-Anfrage fehlgeschlagen"
 }

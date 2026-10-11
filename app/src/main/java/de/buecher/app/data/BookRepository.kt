@@ -72,7 +72,7 @@ class BookRepository(context: Context) {
         val query = input.trim()
         if (query.isBlank()) return null
 
-        val amazonId = AMAZON_PRODUCT_ID.find(query)?.groupValues?.get(1)
+        val amazonId = extractAmazonProductId(query)
         val searches = when {
             amazonId != null -> listOf("isbn:$amazonId", amazonId)
             query.matches(Regex("[0-9Xx-]{10,17}")) -> listOf("isbn:${query.replace("-", "")}")
@@ -109,6 +109,12 @@ class BookRepository(context: Context) {
 
     private companion object {
         const val FILE_PATH = "buecher.json"
-        val AMAZON_PRODUCT_ID = Regex("/(?:dp|gp/product)/([A-Z0-9]{10})(?:[/?]|$)", RegexOption.IGNORE_CASE)
     }
 }
+
+internal fun extractAmazonProductId(input: String): String? = AMAZON_PRODUCT_ID_REGEX.find(input)?.groupValues?.get(1)
+
+private val AMAZON_PRODUCT_ID_REGEX = Regex(
+    "(?:https?://)?(?:www\\.)?(?:amzn\\.[a-z.]+|amazon\\.[a-z.]+)/(?:dp|gp/product|d)/([A-Z0-9]{8,10})(?:[/?]|$)",
+    RegexOption.IGNORE_CASE,
+)
