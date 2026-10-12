@@ -1,0 +1,54 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Stack of Books matching user icon style -->
+    <!-- Bottom Book (Blue) -->
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M24,78 L84,72 L86,84 L26,90 Z" />
+    <path
+        android:fillColor="#1976D2"
+        android:pathData="M24,78 L26,90 L20,92 L18,80 Z" />
+
+    <!-- Second Book (Orange) -->
+    <path
+        android:fillColor="#FF5722"
+        android:pathData="M22,64 L86,58 L88,70 L24,76 Z" />
+    <path
+        android:fillColor="#E64A19"
+        android:pathData="M22,64 L24,76 L18,78 L16,66 Z" />
+
+    <!-- Third Book (Dark Red / Maroon) -->
+    <path
+        android:fillColor="#880E4F"
+        android:pathData="M20,50 L88,44 L90,56 L22,62 Z" />
+    <path
+        android:fillColor="#560027"
+        android:pathData="M20,50 L22,62 L16,64 L14,52 Z" />
+
+    <!-- Fourth Book (Yellow) -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M18,36 L90,30 L92,42 L20,48 Z" />
+    <path
+        android:fillColor="#FFA000"
+        android:pathData="M18,36 L20,48 L14,50 L12,38 Z" />
+
+    <!-- Fifth Book (Green) -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M22,22 L86,16 L88,28 L24,34 Z" />
+    <path
+        android:fillColor="#388E3C"
+        android:pathData="M22,22 L24,34 L18,36 L16,24 Z" />
+
+    <!-- Top Book (Red) -->
+    <path
+        android:fillColor="#F44336"
+        android:pathData="M26,10 L82,6 L84,18 L28,22 Z" />
+    <path
+        android:fillColor="#D32F2F"
+        android:pathData="M26,10 L28,22 L22,24 L20,12 Z" />
+</vector>

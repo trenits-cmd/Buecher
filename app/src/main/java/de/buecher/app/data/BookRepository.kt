@@ -32,6 +32,11 @@ class BookRepository(context: Context) {
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(GoogleBooksApi::class.java)
+    private val openLibrary = Retrofit.Builder()
+        .baseUrl("https://openlibrary.org/")
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+        .create(OpenLibraryApi::class.java)
     private val preferences = context.getSharedPreferences("buecher_settings", Context.MODE_PRIVATE)
 
     fun savedConfig(): GitHubConfig = GitHubConfig(
@@ -48,16 +53,33 @@ class BookRepository(context: Context) {
             .apply()
     }
 
+    fun savedYearlyGoal(): Int = preferences.getInt("yearly_goal", 12)
+
+    fun saveYearlyGoal(goal: Int) {
+        preferences.edit().putInt("yearly_goal", goal.coerceAtLeast(1)).apply()
+    }
+
     suspend fun loadBooks(config: GitHubConfig, token: String): List<Book> {
+        if (config.owner.isBlank() || config.repository.isBlank() || token.isBlank()) {
+            return loadLocalBooks()
+        }
         return try {
             val remote = github.getFile(config.owner, config.repository, FILE_PATH, authorization(token))
-            decode(remote.content)
-        } catch (error: HttpException) {
-            if (error.code() == 404) emptyList() else throw error
+            val books = decode(remote.content)
+            saveLocalBooks(books)
+            books
+        } catch (_: Exception) {
+            loadLocalBooks()
         }
     }
 
     suspend fun saveBooks(config: GitHubConfig, token: String, books: List<Book>) {
+        saveLocalBooks(books)
+
+        if (config.owner.isBlank() || config.repository.isBlank() || token.isBlank()) {
+            return
+        }
+
         val authorization = authorization(token)
         val sha = try {
             github.getFile(config.owner, config.repository, FILE_PATH, authorization).sha
@@ -80,110 +102,191 @@ class BookRepository(context: Context) {
         )
     }
 
-    suspend fun findBook(input: String): GoogleBook? = withContext(Dispatchers.IO) {
-        val query = input.trim()
-        if (query.isBlank()) return@withContext null
+    private fun loadLocalBooks(): List<Book> {
+        val json = preferences.getString("local_books_cache", null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<Book>>() {}.type
+            gson.fromJson<List<Book>>(json, type).orEmpty()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
 
-        // If input is a URL, try to resolve it and extract metadata or identifiers
+    private fun saveLocalBooks(books: List<Book>) {
+        try {
+            val json = gson.toJson(books)
+            preferences.edit().putString("local_books_cache", json).apply()
+        } catch (e: Exception) {
+        }
+    }
+
+    suspend fun findBooks(input: String): List<GoogleBook> = withContext(Dispatchers.IO) {
+        val query = input.trim()
+        if (query.isBlank()) return@withContext emptyList()
+
+        val results = mutableListOf<GoogleBook>()
+
+        // 1. URL handling
         if (query.startsWith("http://", ignoreCase = true) || query.startsWith("https://", ignoreCase = true) || query.startsWith("www.", ignoreCase = true)) {
             val urlString = if (query.startsWith("www.", ignoreCase = true)) "https://$query" else query
             try {
                 val request = Request.Builder()
                     .url(urlString)
-                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36")
                     .build()
-
                 httpClient.newCall(request).execute().use { response ->
                     val finalUrl = response.request.url.toString()
                     val html = response.body?.string().orEmpty()
-
-                    // 1. Try extracting ISBN or ASIN
                     val isbnOrAsin = extractIsbnOrAsin(finalUrl) ?: extractIsbnOrAsin(html)
                     if (isbnOrAsin != null) {
-                        val book = searchGoogleBooks(isbnOrAsin)
-                        if (book != null) return@withContext book
+                        searchOpenLibraryByIsbn(isbnOrAsin)?.let { results.add(it) }
+                        results.addAll(searchGoogleBooksList("isbn:$isbnOrAsin"))
                     }
-
-                    // 2. Try Open Graph meta tags (og:title, og:image, etc.)
                     val ogTitle = extractMetaTag(html, "og:title")
-                    val ogImage = extractMetaTag(html, "og:image")
-                    val ogDesc = extractMetaTag(html, "og:description")
-
                     if (!ogTitle.isNullOrBlank()) {
                         val cleanTitle = ogTitle.substringBefore(" - ").substringBefore(" | ").trim()
-                        val cover = ogImage?.replace("http://", "https://").orEmpty()
-
-                        val googleResult = searchGoogleBooks(cleanTitle)
-                        if (googleResult != null) {
-                            return@withContext googleResult.copy(
-                                coverImageUrl = cover.ifBlank { googleResult.coverImageUrl }
-                            )
+                        val cover = extractMetaTag(html, "og:image")?.replace("http://", "https://").orEmpty()
+                        val list = searchGoogleBooksList(cleanTitle)
+                        if (list.isNotEmpty()) {
+                            results.addAll(list.map { if (it.coverImageUrl.isBlank()) it.copy(coverImageUrl = cover) else it })
+                        } else {
+                            results.add(GoogleBook(cleanTitle, extractAuthorFromDescription(extractMetaTag(html, "og:description")).orEmpty(), 0, "", cover))
                         }
-
-                        return@withContext GoogleBook(
-                            title = cleanTitle,
-                            author = extractAuthorFromDescription(ogDesc).orEmpty(),
-                            pageCount = 0,
-                            language = "",
-                            coverImageUrl = cover,
-                        )
                     }
-
-                    // 3. Try slug query from URL path
                     val slugQuery = extractSlugQuery(finalUrl)
                     if (!slugQuery.isNullOrBlank()) {
-                        val book = searchGoogleBooks(slugQuery)
-                        if (book != null) return@withContext book
+                        results.addAll(searchGoogleBooksList(slugQuery))
                     }
                 }
-            } catch (e: Exception) {
-                // Fallback to standard search if URL fetch fails
-            }
+            } catch (_: Exception) {}
         }
 
-        // Standard search logic
+        // 2. ISBN lookup
+        val cleanIsbn = cleanIsbn(query)
+        if (cleanIsbn != null) {
+            searchOpenLibraryByIsbn(cleanIsbn)?.let { results.add(it) }
+            results.addAll(searchGoogleBooksList("isbn:$cleanIsbn"))
+        }
+
+        // 3. Open Library search
+        try {
+            val olSearch = openLibrary.search(query, limit = 5)
+            olSearch.docs.orEmpty().forEach { doc ->
+                val title = doc.title?.takeIf(String::isNotBlank) ?: return@forEach
+                val author = doc.author_name.orEmpty().joinToString(", ")
+                var pageCount = doc.number_of_pages_median ?: 0
+                val language = doc.language?.firstOrNull().orEmpty()
+                val coverIsbn = doc.isbn?.firstOrNull()
+                val cover = if (doc.cover_i != null && doc.cover_i > 0) {
+                    "https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg"
+                } else if (!coverIsbn.isNullOrBlank()) {
+                    "https://covers.openlibrary.org/b/isbn/$coverIsbn-L.jpg"
+                } else {
+                    ""
+                }
+                if (pageCount <= 0) {
+                    val gbMatch = searchGoogleBooksList("$title $author").firstOrNull { it.pageCount > 0 }
+                    if (gbMatch != null && gbMatch.pageCount > 0) {
+                        pageCount = gbMatch.pageCount
+                    }
+                }
+                results.add(GoogleBook(title, author, pageCount, language, cover))
+            }
+        } catch (_: Exception) {}
+
+        // 4. Google Books search list
         val amazonId = extractAmazonProductId(query)
         val searches = when {
             amazonId != null -> listOf("isbn:$amazonId", amazonId)
             query.matches(Regex("[0-9Xx-]{10,17}")) -> listOf("isbn:${query.replace("-", "")}")
-            else -> listOf(query)
+            else -> listOf(query, "intitle:$query")
         }
 
         for (search in searches) {
-            val book = searchGoogleBooks(search)
-            if (book != null) return@withContext book
+            if (search.startsWith("isbn:")) {
+                val isbnPart = search.removePrefix("isbn:")
+                searchOpenLibraryByIsbn(isbnPart)?.let { results.add(it) }
+            }
+            results.addAll(searchGoogleBooksList(search))
         }
-        return@withContext null
+
+        return@withContext results
+            .distinctBy { "${it.title.lowercase()}-${it.author.lowercase()}" }
+            .map { book ->
+                if (book.pageCount <= 0) {
+                    val found = searchGoogleBooksList(book.title).firstOrNull { it.pageCount > 0 }
+                    if (found != null) book.copy(pageCount = found.pageCount, language = book.language.ifBlank { found.language }, coverImageUrl = book.coverImageUrl.ifBlank { found.coverImageUrl }) else book
+                } else {
+                    book
+                }
+            }
     }
 
-    private suspend fun searchGoogleBooks(query: String): GoogleBook? {
+    suspend fun findBook(input: String): GoogleBook? {
+        return findBooks(input).firstOrNull()
+    }
+
+    private suspend fun searchOpenLibraryByIsbn(isbn: String): GoogleBook? {
         return try {
-            val items = googleBooks.search(query).items ?: return null
-            for (item in items) {
-                val volume = item.volumeInfo ?: continue
-                val title = volume.title?.takeIf(String::isNotBlank) ?: continue
-                val cover = (volume.imageLinks?.thumbnail ?: volume.imageLinks?.smallThumbnail)
-                    ?.replace("http://", "https://")
-                    .orEmpty()
-                return GoogleBook(
-                    title = title,
-                    author = volume.authors.orEmpty().joinToString(", "),
-                    pageCount = volume.pageCount ?: 0,
-                    language = volume.language.orEmpty(),
-                    coverImageUrl = cover,
-                )
+            val response = openLibrary.getBookByIsbn("ISBN:$isbn")
+            val book = response["ISBN:$isbn"] ?: response["ISBN:${isbn.replace("-", "")}"] ?: return null
+            val title = book.title?.takeIf(String::isNotBlank) ?: return null
+            val author = book.authors.orEmpty().mapNotNull { it.name }.joinToString(", ")
+            var pageCount = book.number_of_pages ?: 0
+            val rawLang = book.languages?.firstOrNull()?.key ?: ""
+            val language = normalizeLanguage(rawLang)
+            val cover = book.cover?.large ?: book.cover?.medium ?: "https://covers.openlibrary.org/b/isbn/$isbn-L.jpg"
+            if (pageCount <= 0) {
+                val gbMatch = searchGoogleBooksList("$title $author").firstOrNull { it.pageCount > 0 }
+                if (gbMatch != null && gbMatch.pageCount > 0) {
+                    pageCount = gbMatch.pageCount
+                }
             }
-            null
+            GoogleBook(
+                title = title,
+                author = author,
+                pageCount = pageCount,
+                language = language,
+                coverImageUrl = cover,
+            )
         } catch (e: Exception) {
             null
         }
+    }
+
+    private suspend fun searchGoogleBooksList(query: String): List<GoogleBook> {
+        return try {
+            val items = googleBooks.search(query).items ?: return emptyList()
+            items.mapNotNull { item ->
+                val volume = item.volumeInfo ?: return@mapNotNull null
+                val title = volume.title?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                val cover = (volume.imageLinks?.thumbnail ?: volume.imageLinks?.smallThumbnail)
+                    ?.replace("http://", "https://")
+                    .orEmpty()
+                GoogleBook(
+                    title = title,
+                    author = volume.authors.orEmpty().joinToString(", "),
+                    pageCount = volume.pageCount ?: 0,
+                    language = normalizeLanguage(volume.language),
+                    coverImageUrl = cover,
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun cleanIsbn(input: String): String? {
+        val digits = input.replace(Regex("[^0-9Xx]"), "")
+        return if (digits.length == 10 || digits.length == 13) digits else null
     }
 
     private fun decode(content: String?): List<Book> {
         if (content.isNullOrBlank()) return emptyList()
         val json = Base64.decode(content, Base64.DEFAULT).toString(Charsets.UTF_8)
         val type = object : TypeToken<List<Book>>() {}.type
-        return gson.fromJson<List<Book>>(json, type).orEmpty()
+        val books = gson.fromJson<List<Book>>(json, type).orEmpty()
+        return books.map { it.copy(language = normalizeLanguage(it.language)) }
     }
 
     private fun authorization(token: String) = "Bearer ${token.trim()}"
@@ -241,4 +344,13 @@ private fun extractAuthorFromDescription(desc: String?): String? {
     if (desc.isNullOrBlank()) return null
     val authorRegex = Regex("(?:von|by|author:?)\\s+([A-ZÄÖÜ][a-zäöüß]+(?:\\s+[A-ZÄÖÜ][a-zäöüß]+)+)", RegexOption.IGNORE_CASE)
     return authorRegex.find(desc)?.groupValues?.get(1)
+}
+
+fun normalizeLanguage(lang: String?): String {
+    val l = lang?.lowercase().orEmpty()
+    return when {
+        l.contains("en") || l.contains("eng") || l.contains("english") -> "Englisch"
+        l.contains("fr") || l.contains("fra") || l.contains("french") -> "Französisch"
+        else -> "Deutsch"
+    }
 }
