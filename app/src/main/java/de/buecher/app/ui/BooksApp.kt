@@ -736,6 +736,7 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
 private fun ArchiveScreen(books: List<Book>, onSelect: (Book) -> Unit, onStatusChange: (Book) -> Unit) {
     var selectedLangFilter by remember { mutableStateOf("Alle") }
     var selectedYearFilter by remember { mutableStateOf<Int?>(null) }
+    var selectedRatingFilter by remember { mutableStateOf<Int?>(null) }
 
     val archived = remember(books) {
         books.filter { it.isRead || it.status == "Gelesen" }
@@ -745,18 +746,19 @@ private fun ArchiveScreen(books: List<Book>, onSelect: (Book) -> Unit, onStatusC
         archived.map { effectiveFinishYear(it) }.distinct().sortedDescending()
     }
 
-    val filtered = remember(archived, selectedLangFilter, selectedYearFilter) {
+    val filtered = remember(archived, selectedLangFilter, selectedYearFilter, selectedRatingFilter) {
         archived.filter { book ->
             val matchLang = selectedLangFilter == "Alle" || book.language.equals(selectedLangFilter, ignoreCase = true)
             val matchYear = selectedYearFilter == null || effectiveFinishYear(book) == selectedYearFilter
-            matchLang && matchYear
+            val matchRating = selectedRatingFilter == null || book.rating == selectedRatingFilter
+            matchLang && matchYear && matchRating
         }
     }
 
     Column(Modifier.fillMaxSize()) {
         // Filter Row 1: Language
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             listOf("Alle", "Deutsch", "Englisch", "Französisch").forEach { lang ->
@@ -777,10 +779,46 @@ private fun ArchiveScreen(books: List<Book>, onSelect: (Book) -> Unit, onStatusC
             }
         }
 
-        // Filter Row 2: Years
+        // Filter Row 2: Rating Stars
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (selectedRatingFilter == null) Leaf else SoftGreen,
+                modifier = Modifier.clickable { selectedRatingFilter = null },
+            ) {
+                Text(
+                    text = "Alle Sterne",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (selectedRatingFilter == null) Color.White else Leaf,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            (5 downTo 1).forEach { star ->
+                val selected = selectedRatingFilter == star
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (selected) Leaf else SoftGreen,
+                    modifier = Modifier.clickable { selectedRatingFilter = if (selected) null else star },
+                ) {
+                    Text(
+                        text = "$star ★",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (selected) Color.White else Leaf,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+        }
+
+        // Filter Row 3: Years
         if (availableYears.size > 1) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Surface(
@@ -801,7 +839,7 @@ private fun ArchiveScreen(books: List<Book>, onSelect: (Book) -> Unit, onStatusC
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (selected) Leaf else SoftGreen,
-                        modifier = Modifier.clickable { selectedYearFilter = yr },
+                        modifier = Modifier.clickable { selectedYearFilter = if (selected) null else yr },
                     ) {
                         Text(
                             text = "$yr",
@@ -825,7 +863,7 @@ private fun ArchiveScreen(books: List<Book>, onSelect: (Book) -> Unit, onStatusC
                 Spacer(Modifier.height(16.dp))
                 Text("Keine Bücher in dieser Ansicht", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
-                Text("Gelesene Bücher erscheinen hier nach Sprach- und Jahresfilter.", color = Color(0xFF65716A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text("Gelesene Bücher erscheinen hier nach Sprach-, Sterne- und Jahresfilter.", color = Color(0xFF65716A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         } else {
             LazyColumn(
@@ -884,7 +922,10 @@ private fun BookRow(book: Book, onClick: () -> Unit, onStatusChange: (Book) -> U
                     val startStr = dateFormat.format(Date(book.startDate))
                     val finishStr = if (book.finishDate != null) dateFormat.format(Date(book.finishDate)) else ""
                     val durationDays = if (book.finishDate != null) maxOf(1L, (book.finishDate - book.startDate) / (1000 * 60 * 60 * 24)) else null
-                    val durationText = if (durationDays != null) " ($durationDays ${if (durationDays == 1L) "Tag" else "Tage"})" else ""
+                    val totalPages = if (book.pageCount > 0) book.pageCount else book.pagesRead
+                    val speed = if (durationDays != null && totalPages > 0) totalPages.toFloat() / durationDays.toFloat() else null
+                    val speedText = if (speed != null) String.format(Locale.getDefault(), " • Ø %.1f S./Tag", speed) else ""
+                    val durationText = if (durationDays != null) " ($durationDays ${if (durationDays == 1L) "Tag" else "Tage"}$speedText)" else ""
                     val lineText = if (finishStr.isNotBlank()) "$startStr – $finishStr$durationText" else "Begonnen am $startStr"
                     Text(lineText, style = MaterialTheme.typography.labelSmall, color = Color(0xFF65716A))
                 }
