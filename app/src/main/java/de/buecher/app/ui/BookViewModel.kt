@@ -115,12 +115,24 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
     fun save(book: Book) {
         val current = _state.value
         val isCompleted = book.status == "Gelesen" || book.isRead
-        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+        val now = System.currentTimeMillis()
+        val calculatedFinishDate = if (isCompleted) (book.finishDate ?: now) else null
+        val calculatedFinishYear = if (isCompleted) {
+            if (calculatedFinishDate != null) {
+                val cal = Calendar.getInstance().apply { timeInMillis = calculatedFinishDate }
+                cal.get(Calendar.YEAR)
+            } else {
+                book.finishYear ?: Calendar.getInstance().get(Calendar.YEAR)
+            }
+        } else {
+            book.finishYear
+        }
+
         val preparedBook = book.copy(
             isRead = isCompleted,
             status = if (isCompleted) "Gelesen" else book.status,
-            finishYear = if (isCompleted) (book.finishYear ?: currentYear) else book.finishYear,
-            finishDate = if (isCompleted) (book.finishDate ?: System.currentTimeMillis()) else book.finishDate,
+            finishYear = calculatedFinishYear,
+            finishDate = calculatedFinishDate,
         )
         val updated = current.books.filterNot { it.id == preparedBook.id } + preparedBook
         persist(current, updated, "Buch gespeichert")
@@ -207,13 +219,7 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
         val readThisYear = books.count { book ->
             val isCompleted = book.isRead || book.status == "Gelesen"
             if (!isCompleted) return@count false
-            if (book.finishYear == currentYear) return@count true
-            if (book.finishDate != null) {
-                val cal = Calendar.getInstance().apply { timeInMillis = book.finishDate }
-                cal.get(Calendar.YEAR) == currentYear
-            } else {
-                book.finishYear == null
-            }
+            effectiveFinishYear(book) == currentYear
         }
         val goal = yearlyGoal.coerceAtLeast(1)
         val percent = (readThisYear * 100) / goal
@@ -236,14 +242,31 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
         }
     }
 
+    fun getPagesReadByLanguage(books: List<Book>, year: Int?): Map<String, Int> {
+        val filteredBooks = if (year == null) books else books.filter {
+            ((it.isRead || it.status == "Gelesen") && effectiveFinishYear(it) == year) || (it.status == "Wird gelesen")
+        }
+        val supportedLangs = listOf("Deutsch", "Englisch", "Französisch")
+        return supportedLangs.associateWith { lang ->
+            filteredBooks.filter { it.language.equals(lang, ignoreCase = true) }
+                .sumOf { book ->
+                    if (book.isRead || book.status == "Gelesen") {
+                        if (book.pageCount > 0) book.pageCount else book.pagesRead
+                    } else {
+                        book.pagesRead
+                    }
+                }
+        }
+    }
+
     fun getYearlyStats(books: List<Book>): List<YearlyStats> {
         val completed = books.filter { it.isRead || it.status == "Gelesen" }
         val currentYear = Calendar.getInstance().get(Calendar.YEAR)
-        val years = (completed.mapNotNull { it.finishYear } + currentYear).distinct().sortedDescending()
+        val years = (completed.map { effectiveFinishYear(it) } + currentYear).distinct().sortedDescending()
         val supportedLangs = listOf("Deutsch", "Englisch", "Französisch")
 
         return years.map { year ->
-            val yearBooks = completed.filter { (it.finishYear ?: currentYear) == year }
+            val yearBooks = completed.filter { effectiveFinishYear(it) == year }
             val breakdown = supportedLangs.associateWith { lang ->
                 yearBooks.count { it.language.equals(lang, ignoreCase = true) }
             }
@@ -261,7 +284,8 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
             val lang = "\"${b.language}\""
             val startStr = dateFormat.format(Date(b.startDate))
             val finishStr = if (b.finishDate != null) dateFormat.format(Date(b.finishDate)) else ""
-            sb.append("$title,$author,$lang,${b.pageCount},${b.pagesRead},\"${b.status}\",${b.rating},${b.finishYear ?: ""},$startStr,$finishStr\n")
+            val yearStr = effectiveFinishYear(b)
+            sb.append("$title,$author,$lang,${b.pageCount},${b.pagesRead},\"${b.status}\",${b.rating},$yearStr,$startStr,$finishStr\n")
         }
         return sb.toString()
     }
@@ -285,6 +309,18 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = BookViewModel(repository) as T
     }
+}
+
+internal fun effectiveFinishYear(book: Book): Int {
+    if (book.finishDate != null && book.finishDate > 0) {
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = book.finishDate
+        return cal.get(Calendar.YEAR)
+    }
+    if (book.finishYear != null && book.finishYear > 0) {
+        return book.finishYear
+    }
+    return Calendar.getInstance().get(Calendar.YEAR)
 }
 
 internal fun formatHttpError(error: Throwable, service: String): String = when (error) {

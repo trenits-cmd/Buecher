@@ -296,11 +296,31 @@ private fun DashboardScreen(
     onSelect: (Book) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    var selectedYear by remember { mutableStateOf<Int?>(currentYear) }
+    var selectedActiveLangFilter by remember { mutableStateOf("Alle") }
+
+    val availableYears = remember(books) {
+        (books.mapNotNull { it.finishYear } + currentYear).distinct().sortedDescending()
+    }
+
+    val filteredBooksForStats = remember(books, selectedYear) {
+        if (selectedYear == null) books else books.filter {
+            ((it.isRead || it.status == "Gelesen") && (it.finishYear == selectedYear)) || (it.status == "Wird gelesen")
+        }
+    }
+
     val goalProgress = remember(books, state.yearlyGoal) { viewModel.getYearlyGoalProgress(books, state.yearlyGoal) }
-    val forecasts = remember(books) { viewModel.getActiveForecasts(books) }
-    val completedCount = remember(books) { books.count { it.isRead || it.status == "Gelesen" } }
-    val totalPagesRead = remember(books) {
-        books.sumOf { book ->
+    val pagesByLang = remember(books, selectedYear) { viewModel.getPagesReadByLanguage(books, selectedYear) }
+    val allForecasts = remember(books) { viewModel.getActiveForecasts(books) }
+    val filteredForecasts = remember(allForecasts, selectedActiveLangFilter) {
+        if (selectedActiveLangFilter == "Alle") allForecasts
+        else allForecasts.filter { it.book.language.equals(selectedActiveLangFilter, ignoreCase = true) }
+    }
+
+    val completedCount = remember(filteredBooksForStats) { filteredBooksForStats.count { it.isRead || it.status == "Gelesen" } }
+    val totalPagesRead = remember(filteredBooksForStats) {
+        filteredBooksForStats.sumOf { book ->
             if (book.isRead || book.status == "Gelesen") {
                 if (book.pageCount > 0) book.pageCount else book.pagesRead
             } else {
@@ -315,14 +335,81 @@ private fun DashboardScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        // 1. Year Filter Chips
+        item {
+            Column {
+                Text("Jahresfilter", style = MaterialTheme.typography.labelMedium, color = Color(0xFF65716A))
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (selectedYear == null) Leaf else SoftGreen,
+                        modifier = Modifier.clickable { selectedYear = null },
+                    ) {
+                        Text(
+                            text = "Alle Jahre",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (selectedYear == null) Color.White else Leaf,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    availableYears.take(4).forEach { yr ->
+                        val selected = selectedYear == yr
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (selected) Leaf else SoftGreen,
+                            modifier = Modifier.clickable { selectedYear = yr },
+                        ) {
+                            Text(
+                                text = "$yr",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (selected) Color.White else Leaf,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Summary Stat Cards
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard("Gelesene Bücher", completedCount.toString(), Modifier.weight(1f), Leaf)
                 StatCard("Gelesene Seiten", totalPagesRead.toString(), Modifier.weight(1f), Color(0xFFB85C45))
             }
         }
+
+        // 3. Pages Read by Language
         item {
-            // Yearly Goal Card
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White,
+                shadowElevation = 1.dp,
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Gelesene Seiten nach Sprache", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(10.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        pagesByLang.forEach { (lang, pages) ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(lang, style = MaterialTheme.typography.labelMedium, color = Color(0xFF65716A))
+                                Text("$pages S.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Leaf)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Yearly Goal Card
+        item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -353,10 +440,36 @@ private fun DashboardScreen(
                 }
             }
         }
+
+        // 5. Active Reading Section with Language Filter
         item {
-            Text("Aktive Lektüre & Prognose", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Column {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Aktive Lektüre & Prognose", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Alle", "Deutsch", "Englisch", "Französisch").forEach { langOpt ->
+                        val selected = selectedActiveLangFilter == langOpt
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (selected) Leaf else SoftGreen,
+                            modifier = Modifier.clickable { selectedActiveLangFilter = langOpt },
+                        ) {
+                            Text(
+                                text = langOpt,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (selected) Color.White else Leaf,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
+            }
         }
-        if (forecasts.isEmpty()) {
+
+        if (filteredForecasts.isEmpty()) {
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -372,13 +485,13 @@ private fun DashboardScreen(
                             contentScale = ContentScale.Crop,
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text("Keine aktiven Bücher", fontWeight = FontWeight.SemiBold)
+                        Text("Keine aktiven Bücher in dieser Ansicht", fontWeight = FontWeight.SemiBold)
                         Text("Bücher mit Status „Wird gelesen“ erscheinen hier mit einer intelligenten Leseprognose.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF65716A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }
                 }
             }
         } else {
-            items(forecasts, key = { it.book.id }) { forecast ->
+            items(filteredForecasts, key = { it.book.id }) { forecast ->
                 ActiveBookCard(forecast = forecast, onClick = { onSelect(forecast.book) })
             }
         }
@@ -621,37 +734,115 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
 
 @Composable
 private fun ArchiveScreen(books: List<Book>, onSelect: (Book) -> Unit, onStatusChange: (Book) -> Unit) {
+    var selectedLangFilter by remember { mutableStateOf("Alle") }
+    var selectedYearFilter by remember { mutableStateOf<Int?>(null) }
+
     val archived = remember(books) {
         books.filter { it.isRead || it.status == "Gelesen" }
     }
 
-    if (archived.isEmpty()) {
-        Column(
-            Modifier.fillMaxSize().padding(32.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(Icons.Default.Archive, contentDescription = null, tint = Leaf, modifier = Modifier.size(50.dp))
-            Spacer(Modifier.height(16.dp))
-            Text("Archiv ist leer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            Text("Gelesene Bücher wandern automatisch hierher.", color = Color(0xFF65716A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    val availableYears = remember(archived) {
+        archived.map { effectiveFinishYear(it) }.distinct().sortedDescending()
+    }
+
+    val filtered = remember(archived, selectedLangFilter, selectedYearFilter) {
+        archived.filter { book ->
+            val matchLang = selectedLangFilter == "Alle" || book.language.equals(selectedLangFilter, ignoreCase = true)
+            val matchYear = selectedYearFilter == null || effectiveFinishYear(book) == selectedYearFilter
+            matchLang && matchYear
         }
-    } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        // Filter Row 1: Language
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item {
-                Text("Gelesene Bücher (Archiv)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            listOf("Alle", "Deutsch", "Englisch", "Französisch").forEach { lang ->
+                val selected = selectedLangFilter == lang
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (selected) Leaf else SoftGreen,
+                    modifier = Modifier.clickable { selectedLangFilter = lang },
+                ) {
+                    Text(
+                        text = lang,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (selected) Color.White else Leaf,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
-            items(archived, key = { it.id }) { book ->
-                BookRow(
-                    book = book,
-                    onClick = { onSelect(book) },
-                    onStatusChange = { updated -> onStatusChange(updated) },
-                )
+        }
+
+        // Filter Row 2: Years
+        if (availableYears.size > 1) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (selectedYearFilter == null) Leaf else SoftGreen,
+                    modifier = Modifier.clickable { selectedYearFilter = null },
+                ) {
+                    Text(
+                        text = "Alle Jahre",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (selectedYearFilter == null) Color.White else Leaf,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                availableYears.forEach { yr ->
+                    val selected = selectedYearFilter == yr
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (selected) Leaf else SoftGreen,
+                        modifier = Modifier.clickable { selectedYearFilter = yr },
+                    ) {
+                        Text(
+                            text = "$yr",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (selected) Color.White else Leaf,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (filtered.isEmpty()) {
+            Column(
+                Modifier.fillMaxSize().padding(32.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(Icons.Default.Archive, contentDescription = null, tint = Leaf, modifier = Modifier.size(50.dp))
+                Spacer(Modifier.height(16.dp))
+                Text("Keine Bücher in dieser Ansicht", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text("Gelesene Bücher erscheinen hier nach Sprach- und Jahresfilter.", color = Color(0xFF65716A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 92.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item {
+                    Text("Gelesene Bücher (${filtered.size})", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                }
+                items(filtered.sortedByDescending { it.finishDate ?: it.startDate }, key = { it.id }) { book ->
+                    BookRow(
+                        book = book,
+                        onClick = { onSelect(book) },
+                        onStatusChange = { updated -> onStatusChange(updated) },
+                    )
+                }
             }
         }
     }
@@ -661,6 +852,7 @@ private fun ArchiveScreen(books: List<Book>, onSelect: (Book) -> Unit, onStatusC
 private fun BookRow(book: Book, onClick: () -> Unit, onStatusChange: (Book) -> Unit) {
     var statusMenuExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val dateFormat = remember { SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()) }
 
     Surface(
         modifier = Modifier.fillMaxWidth().clickable {
@@ -686,7 +878,18 @@ private fun BookRow(book: Book, onClick: () -> Unit, onStatusChange: (Book) -> U
                 Text(book.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2)
                 Spacer(Modifier.height(3.dp))
                 Text(book.author.ifBlank { "Unbekannter Autor" }, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF65716A), maxLines = 1)
-                Spacer(Modifier.height(8.dp))
+
+                if (book.isRead || book.status == "Gelesen") {
+                    Spacer(Modifier.height(3.dp))
+                    val startStr = dateFormat.format(Date(book.startDate))
+                    val finishStr = if (book.finishDate != null) dateFormat.format(Date(book.finishDate)) else ""
+                    val durationDays = if (book.finishDate != null) maxOf(1L, (book.finishDate - book.startDate) / (1000 * 60 * 60 * 24)) else null
+                    val durationText = if (durationDays != null) " ($durationDays ${if (durationDays == 1L) "Tag" else "Tage"})" else ""
+                    val lineText = if (finishStr.isNotBlank()) "$startStr – $finishStr$durationText" else "Begonnen am $startStr"
+                    Text(lineText, style = MaterialTheme.typography.labelSmall, color = Color(0xFF65716A))
+                }
+
+                Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RatingStars(book.rating, interactive = false)
                     Box {
@@ -776,6 +979,8 @@ private fun BookDetailsScreen(
                 DetailValue("Begonnen", dateFormat.format(Date(book.startDate)))
                 if (book.finishDate != null) {
                     DetailValue("Beendet", dateFormat.format(Date(book.finishDate)))
+                    val daysTaken = maxOf(1L, (book.finishDate - book.startDate) / (1000 * 60 * 60 * 24))
+                    DetailValue("Lesedauer", "$daysTaken ${if (daysTaken == 1L) "Tag" else "Tage"}")
                 } else if (book.finishYear != null) {
                     DetailValue("Beendigungsjahr", "${book.finishYear}")
                 }
@@ -999,6 +1204,13 @@ private fun BookFormScreen(
                             val parsedStart = try { dateFormat.parse(startDateText.trim())?.time ?: (original?.startDate ?: now) } catch (_: Exception) { original?.startDate ?: now }
                             val parsedFinish = try { if (finishDateText.isNotBlank()) dateFormat.parse(finishDateText.trim())?.time else null } catch (_: Exception) { null }
 
+                            val derivedFinishYear = if (parsedFinish != null) {
+                                val finishCal = Calendar.getInstance().apply { timeInMillis = parsedFinish }
+                                finishCal.get(Calendar.YEAR)
+                            } else {
+                                year ?: cal.get(Calendar.YEAR)
+                            }
+
                             onSave(
                                 Book(
                                     id = original?.id ?: java.util.UUID.randomUUID().toString(),
@@ -1012,7 +1224,7 @@ private fun BookFormScreen(
                                     amazonUrl = amazonUrl.trim(),
                                     pagesRead = if (isCompleted) totalPages else (pagesRead.toIntOrNull() ?: 0).coerceIn(0, totalPages.takeIf { it > 0 } ?: Int.MAX_VALUE),
                                     status = if (isCompleted) "Gelesen" else status,
-                                    finishYear = if (isCompleted) (year ?: cal.get(Calendar.YEAR)) else year,
+                                    finishYear = if (isCompleted) derivedFinishYear else year,
                                     startDate = parsedStart,
                                     finishDate = if (isCompleted) (parsedFinish ?: now) else parsedFinish,
                                 ),
