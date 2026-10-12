@@ -7,6 +7,7 @@ import de.buecher.app.data.Book
 import de.buecher.app.data.BookRepository
 import de.buecher.app.data.GitHubConfig
 import de.buecher.app.data.GoogleBook
+import de.buecher.app.data.normalizeLanguage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.max
 
@@ -277,17 +279,43 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
     fun exportCsv(books: List<Book>): String {
         val sb = StringBuilder()
         val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
-        sb.append("Titel,Autor,Sprache,Seiten,Gelesen,Status,Bewertung,Beendigungsjahr,Startdatum,Beendigungsdatum\n")
+        sb.append("ID,Titel,Autor,Sprache,GesamteSeiten,GeleseneSeiten,Status,Bewertung,CoverURL,AmazonURL,Startdatum,Beendigungsdatum,Beendigungsjahr\n")
         for (b in books) {
+            val id = "\"${b.id.replace("\"", "\"\"")}\""
             val title = "\"${b.title.replace("\"", "\"\"")}\""
             val author = "\"${b.author.replace("\"", "\"\"")}\""
             val lang = "\"${b.language}\""
+            val status = "\"${b.status}\""
+            val cover = "\"${b.coverImageUrl.replace("\"", "\"\"")}\""
+            val amazon = "\"${b.amazonUrl.replace("\"", "\"\"")}\""
             val startStr = dateFormat.format(Date(b.startDate))
             val finishStr = if (b.finishDate != null) dateFormat.format(Date(b.finishDate)) else ""
             val yearStr = effectiveFinishYear(b)
-            sb.append("$title,$author,$lang,${b.pageCount},${b.pagesRead},\"${b.status}\",${b.rating},$yearStr,$startStr,$finishStr\n")
+
+            sb.append("$id,$title,$author,$lang,${b.pageCount},${b.pagesRead},$status,${b.rating},$cover,$amazon,$startStr,$finishStr,$yearStr\n")
         }
         return sb.toString()
+    }
+
+    fun importCsv(csvContent: String) {
+        viewModelScope.launch {
+            try {
+                val newBooks = parseCsv(csvContent)
+                if (newBooks.isEmpty()) {
+                    _state.update { it.copy(error = "Keine gültigen Bücher in der CSV-Datei gefunden") }
+                    return@launch
+                }
+                val current = _state.value
+                val existingMap = current.books.associateBy { it.id }.toMutableMap()
+                for (book in newBooks) {
+                    existingMap[book.id] = book
+                }
+                val mergedList = existingMap.values.toList()
+                persist(current, mergedList, "${newBooks.size} Bücher erfolgreich aus CSV importiert")
+            } catch (e: Exception) {
+                _state.update { it.copy(error = "Fehler beim Importieren der CSV-Datei") }
+            }
+        }
     }
 
     private fun persist(current: BooksUiState, books: List<Book>, successMessage: String) {
@@ -309,6 +337,103 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = BookViewModel(repository) as T
     }
+}
+
+internal fun parseCsv(csvContent: String): List<Book> {
+    val lines = csvContent.lines().filter { it.isNotBlank() }
+    if (lines.size <= 1) return emptyList()
+
+    val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
+    val header = parseCsvLine(lines.first()).map { it.trim().lowercase() }
+    val titleIdx = header.indexOfFirst { it.contains("titel") || it.contains("title") }
+    if (titleIdx == -1) return emptyList()
+
+    val idIdx = header.indexOfFirst { it == "id" }
+    val authorIdx = header.indexOfFirst { it.contains("autor") || it.contains("author") }
+    val langIdx = header.indexOfFirst { it.contains("sprache") || it.contains("language") }
+    val pagesIdx = header.indexOfFirst { it.contains("gesamteseiten") || it == "seiten" || it.contains("pages") }
+    val readPagesIdx = header.indexOfFirst { it.contains("geleseneseiten") || it == "gelesen" }
+    val statusIdx = header.indexOfFirst { it == "status" }
+    val ratingIdx = header.indexOfFirst { it.contains("bewertung") || it.contains("rating") }
+    val coverIdx = header.indexOfFirst { it.contains("coverurl") || it.contains("cover") }
+    val amazonIdx = header.indexOfFirst { it.contains("amazonurl") || it.contains("amazon") }
+    val startIdx = header.indexOfFirst { it.contains("startdatum") }
+    val finishIdx = header.indexOfFirst { it.contains("beendigungsdatum") || it.contains("beendet") }
+    val yearIdx = header.indexOfFirst { it.contains("beendigungsjahr") }
+
+    val books = mutableListOf<Book>()
+    for (i in 1 until lines.size) {
+        val row = parseCsvLine(lines[i])
+        if (row.size <= titleIdx) continue
+        val title = row.getOrNull(titleIdx)?.trim().orEmpty()
+        if (title.isBlank()) continue
+
+        val id = idIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim() }?.ifBlank { null } ?: UUID.randomUUID().toString()
+        val author = authorIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim() }.orEmpty()
+        val rawLang = langIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim() }.orEmpty()
+        val lang = normalizeLanguage(rawLang)
+        val pages = pagesIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim()?.toIntOrNull() } ?: 0
+        val readPages = readPagesIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim()?.toIntOrNull() } ?: 0
+        val rawStatus = statusIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim() }.orEmpty()
+        val rating = ratingIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim()?.toIntOrNull() } ?: 0
+        val cover = coverIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim() }.orEmpty()
+        val amazon = amazonIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim() }.orEmpty()
+
+        val startStr = startIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim() }.orEmpty()
+        val finishStr = finishIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim() }.orEmpty()
+        val yearVal = yearIdx.takeIf { it != -1 }?.let { row.getOrNull(it)?.trim()?.toIntOrNull() }
+
+        val startDate = try { if (startStr.isNotBlank()) dateFormat.parse(startStr)?.time else null } catch (_: Exception) { null } ?: System.currentTimeMillis()
+        val finishDate = try { if (finishStr.isNotBlank()) dateFormat.parse(finishStr)?.time else null } catch (_: Exception) { null }
+        val isCompleted = rawStatus.equals("Gelesen", ignoreCase = true) || (pages > 0 && readPages >= pages)
+        val status = if (isCompleted) "Gelesen" else if (rawStatus.isNotBlank()) rawStatus else "Ungelesen"
+
+        books.add(
+            Book(
+                id = id,
+                title = title,
+                author = author,
+                pageCount = pages,
+                language = lang,
+                rating = rating,
+                isRead = isCompleted,
+                coverImageUrl = cover,
+                amazonUrl = amazon,
+                pagesRead = if (isCompleted && pages > 0) pages else readPages,
+                status = status,
+                finishYear = yearVal ?: if (finishDate != null) Calendar.getInstance().apply { timeInMillis = finishDate }.get(Calendar.YEAR) else null,
+                startDate = startDate,
+                finishDate = finishDate,
+            ),
+        )
+    }
+    return books
+}
+
+internal fun parseCsvLine(line: String): List<String> {
+    val result = mutableListOf<String>()
+    val sb = StringBuilder()
+    var inQuotes = false
+    var i = 0
+    while (i < line.length) {
+        val c = line[i]
+        if (c == '"') {
+            if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
+                sb.append('"')
+                i++
+            } else {
+                inQuotes = !inQuotes
+            }
+        } else if (c == ',' && !inQuotes) {
+            result.add(sb.toString())
+            sb.clear()
+        } else {
+            sb.append(c)
+        }
+        i++
+    }
+    result.add(sb.toString())
+    return result
 }
 
 internal fun effectiveFinishYear(book: Book): Int {

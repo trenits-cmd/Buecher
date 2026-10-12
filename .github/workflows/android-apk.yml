@@ -25,7 +25,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 17
           cache: gradle
 
       - name: Android SDK einrichten
@@ -38,7 +38,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Debug-APK bauen
-        run: ./gradlew --no-daemon :app:assembleDebug --stacktrace
+        run: ./gradlew --no-daemon :app:assembleDebug
 
       - name: APK als Actions-Artefakt hochladen
         uses: actions/upload-artifact@v4
