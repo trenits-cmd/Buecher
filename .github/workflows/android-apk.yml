@@ -25,7 +25,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
           cache: gradle
 
       - name: Android SDK einrichten
@@ -34,8 +34,11 @@ jobs:
           packages: "platforms;android-35 build-tools;35.0.0"
           accept-android-sdk-licenses: true
 
+      - name: Gradlew Ausführungsrechte vergeben
+        run: chmod +x gradlew
+
       - name: Debug-APK bauen
-        run: ./gradlew --no-daemon :app:assembleDebug
+        run: ./gradlew --no-daemon :app:assembleDebug --stacktrace
 
       - name: APK als Actions-Artefakt hochladen
         uses: actions/upload-artifact@v4
@@ -61,7 +64,7 @@ jobs:
       - name: GitHub Release erstellen
         uses: softprops/action-gh-release@v2
         with:
-          name: Bücherregal ${{ github.ref_name }}
+          name: Bücher ${{ github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release/app-debug.apk

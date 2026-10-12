@@ -221,12 +221,17 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
     }
 
     fun getLanguageStats(books: List<Book>): List<LanguageStats> {
-        val completed = books.filter { it.isRead || it.status == "Gelesen" }
         val supportedLangs = listOf("Deutsch", "Englisch", "Französisch")
         return supportedLangs.map { lang ->
-            val matching = completed.filter { it.language.equals(lang, ignoreCase = true) }
-            val booksCount = matching.size
-            val pagesCount = matching.sumOf { if (it.pageCount > 0) it.pageCount else it.pagesRead }
+            val matching = books.filter { it.language.equals(lang, ignoreCase = true) }
+            val booksCount = matching.count { it.isRead || it.status == "Gelesen" }
+            val pagesCount = matching.sumOf { book ->
+                if (book.isRead || book.status == "Gelesen") {
+                    if (book.pageCount > 0) book.pageCount else book.pagesRead
+                } else {
+                    book.pagesRead
+                }
+            }
             LanguageStats(lang, booksCount, pagesCount)
         }
     }

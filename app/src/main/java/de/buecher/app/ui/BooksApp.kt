@@ -1,5 +1,6 @@
 package de.buecher.app.ui
 
+import android.app.DatePickerDialog
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
@@ -297,7 +299,15 @@ private fun DashboardScreen(
     val goalProgress = remember(books, state.yearlyGoal) { viewModel.getYearlyGoalProgress(books, state.yearlyGoal) }
     val forecasts = remember(books) { viewModel.getActiveForecasts(books) }
     val completedCount = remember(books) { books.count { it.isRead || it.status == "Gelesen" } }
-    val totalPagesRead = remember(books) { books.filter { it.isRead || it.status == "Gelesen" }.sumOf { if (it.pageCount > 0) it.pageCount else it.pagesRead } }
+    val totalPagesRead = remember(books) {
+        books.sumOf { book ->
+            if (book.isRead || book.status == "Gelesen") {
+                if (book.pageCount > 0) book.pageCount else book.pagesRead
+            } else {
+                book.pagesRead
+            }
+        }
+    }
     var editGoalOpen by remember { mutableStateOf(false) }
 
     LazyColumn(
@@ -702,7 +712,10 @@ private fun BookRow(book: Book, onClick: () -> Unit, onStatusChange: (Book) -> U
                                     text = { Text(statusOpt) },
                                     onClick = {
                                         val isCompleted = statusOpt == "Gelesen"
-                                        onStatusChange(book.copy(status = statusOpt, isRead = isCompleted))
+                                        val now = System.currentTimeMillis()
+                                        val updatedStart = if (statusOpt == "Wird gelesen" && book.status != "Wird gelesen") now else book.startDate
+                                        val updatedFinish = if (isCompleted) (book.finishDate ?: now) else book.finishDate
+                                        onStatusChange(book.copy(status = statusOpt, isRead = isCompleted, startDate = updatedStart, finishDate = updatedFinish))
                                         statusMenuExpanded = false
                                     },
                                 )
@@ -815,6 +828,8 @@ private fun BookFormScreen(
     onCancel: () -> Unit,
     onSave: (Book) -> Unit,
 ) {
+    val context = LocalContext.current
+    val dateFormat = remember { SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()) }
     var lookupText by remember(original?.id) { mutableStateOf("") }
     var title by remember(original?.id) { mutableStateOf(original?.title.orEmpty()) }
     var author by remember(original?.id) { mutableStateOf(original?.author.orEmpty()) }
@@ -827,6 +842,8 @@ private fun BookFormScreen(
     var isRead by remember(original?.id) { mutableStateOf(original?.isRead ?: false) }
     var status by remember(original?.id) { mutableStateOf(original?.status.takeIf { !it.isNullOrBlank() } ?: "Ungelesen") }
     var finishYear by remember(original?.id) { mutableStateOf(original?.finishYear?.toString().orEmpty()) }
+    var startDateText by remember(original?.id) { mutableStateOf(dateFormat.format(Date(original?.startDate ?: System.currentTimeMillis()))) }
+    var finishDateText by remember(original?.id) { mutableStateOf(original?.finishDate?.let { dateFormat.format(Date(it)) }.orEmpty()) }
 
     LaunchedEffect(lookupText, original?.id) {
         if (original == null && lookupText.trim().length >= 4) {
@@ -903,12 +920,46 @@ private fun BookFormScreen(
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.weight(1f)) {
-                        DropdownField("Status", listOf("Ungelesen", "Wird gelesen", "Pausiert", "Gelesen"), status) {
-                            status = it
-                            if (it == "Gelesen") isRead = true
+                        DropdownField("Status", listOf("Ungelesen", "Wird gelesen", "Pausiert", "Gelesen"), status) { newStatus ->
+                            status = newStatus
+                            val now = System.currentTimeMillis()
+                            if (newStatus == "Wird gelesen") {
+                                startDateText = dateFormat.format(Date(now))
+                            } else if (newStatus == "Gelesen") {
+                                isRead = true
+                                if (finishDateText.isBlank()) {
+                                    finishDateText = dateFormat.format(Date(now))
+                                }
+                            }
                         }
                     }
                     FormField("Beendigungsjahr", finishYear, { finishYear = it }, Modifier.weight(1f), KeyboardType.Number)
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    DateField(
+                        label = "Begonnen am",
+                        value = startDateText,
+                        onValueChange = { startDateText = it },
+                        onPickDate = {
+                            val timestamp = try { dateFormat.parse(startDateText.trim())?.time ?: System.currentTimeMillis() } catch (_: Exception) { System.currentTimeMillis() }
+                            showDatePicker(context, timestamp) { startDateText = it }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (status == "Gelesen" || isRead) {
+                        DateField(
+                            label = "Beendet am",
+                            value = finishDateText,
+                            onValueChange = { finishDateText = it },
+                            onPickDate = {
+                                val timestamp = try { if (finishDateText.isNotBlank()) dateFormat.parse(finishDateText.trim())?.time ?: System.currentTimeMillis() else System.currentTimeMillis() } catch (_: Exception) { System.currentTimeMillis() }
+                                showDatePicker(context, timestamp) { finishDateText = it }
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
             item { FormField("Cover-Bild-URL", cover, { cover = it }, keyboardType = KeyboardType.Uri) }
@@ -923,7 +974,12 @@ private fun BookFormScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = isRead, onCheckedChange = {
                         isRead = it
-                        if (it) status = "Gelesen"
+                        if (it) {
+                            status = "Gelesen"
+                            if (finishDateText.isBlank()) {
+                                finishDateText = dateFormat.format(Date(System.currentTimeMillis()))
+                            }
+                        }
                     })
                     Text("Gelesen")
                 }
@@ -939,6 +995,10 @@ private fun BookFormScreen(
                             val isCompleted = status == "Gelesen" || isRead
                             val now = System.currentTimeMillis()
                             val cal = Calendar.getInstance().apply { timeInMillis = now }
+
+                            val parsedStart = try { dateFormat.parse(startDateText.trim())?.time ?: (original?.startDate ?: now) } catch (_: Exception) { original?.startDate ?: now }
+                            val parsedFinish = try { if (finishDateText.isNotBlank()) dateFormat.parse(finishDateText.trim())?.time else null } catch (_: Exception) { null }
+
                             onSave(
                                 Book(
                                     id = original?.id ?: java.util.UUID.randomUUID().toString(),
@@ -953,8 +1013,8 @@ private fun BookFormScreen(
                                     pagesRead = if (isCompleted) totalPages else (pagesRead.toIntOrNull() ?: 0).coerceIn(0, totalPages.takeIf { it > 0 } ?: Int.MAX_VALUE),
                                     status = if (isCompleted) "Gelesen" else status,
                                     finishYear = if (isCompleted) (year ?: cal.get(Calendar.YEAR)) else year,
-                                    startDate = original?.startDate ?: now,
-                                    finishDate = if (isCompleted) (original?.finishDate ?: now) else null,
+                                    startDate = parsedStart,
+                                    finishDate = if (isCompleted) (parsedFinish ?: now) else parsedFinish,
                                 ),
                             )
                         },
@@ -983,6 +1043,48 @@ private fun FormField(
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
     )
+}
+
+@Composable
+private fun DateField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    onPickDate: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        trailingIcon = {
+            IconButton(onClick = onPickDate) {
+                Icon(Icons.Default.CalendarToday, contentDescription = "Datum auswählen", tint = Leaf)
+            }
+        },
+    )
+}
+
+private fun showDatePicker(
+    context: android.content.Context,
+    initialTimestamp: Long,
+    onDateSelected: (String) -> Unit,
+) {
+    val cal = Calendar.getInstance()
+    cal.timeInMillis = if (initialTimestamp > 0) initialTimestamp else System.currentTimeMillis()
+    val year = cal.get(Calendar.YEAR)
+    val month = cal.get(Calendar.MONTH)
+    val day = cal.get(Calendar.DAY_OF_MONTH)
+
+    DatePickerDialog(context, { _, y, m, d ->
+        val selectedCal = Calendar.getInstance()
+        selectedCal.set(y, m, d)
+        val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
+        onDateSelected(dateFormat.format(selectedCal.time))
+    }, year, month, day).show()
 }
 
 @Composable
