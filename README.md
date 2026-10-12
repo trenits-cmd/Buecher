@@ -1,11 +1,11 @@
 # Bücherregal für Android
 
-Native Android-App mit Kotlin und Jetpack Compose. Bücher werden als `buecher.json` in einem GitHub-Repository gespeichert; Titel, ISBN und Amazon-Produktlinks können über Google Books ergänzt werden.
+Native Android-App mit Kotlin und Jetpack Compose. Bücher werden als `buecher.json` in einem GitHub-Repository gespeichert; Titel, ISBN und Produktlinks (z. B. Amazon, Shop-URLs oder Kurz-Links) können automatisch über Google Books und Web-Metadaten ergänzt werden.
 
 ## Voraussetzungen
 
 - Android Studio mit Android SDK Platform 35
-- JDK 17 (für den Gradle-Wrapper 8.11.1 empfohlen)
+- JDK 17 (für den Gradle-Wrapper 8.13 empfohlen)
 - Ein GitHub-Repository und ein Personal Access Token mit Lese- und Schreibzugriff auf dessen Inhalte
 
 ## Start
@@ -15,6 +15,10 @@ Native Android-App mit Kotlin und Jetpack Compose. Bücher werden als `buecher.j
 3. `buecher.json` wird beim ersten Speichern im gewählten Branch angelegt.
 
 Der Token bleibt nur im Arbeitsspeicher der laufenden App und wird nach einem App-Neustart erneut abgefragt. Repository, Branch und Benutzername werden lokal gespeichert.
+
+## Buch hinzufügen / URLs laden
+
+Beim Hinzufügen eines Buches können Titel, ISBN oder beliebige Produkt-URLs (inklusive Amazon-Links, Kurz-Links wie `amzn.to` oder `amzn.eu` und Shop-Seiten) eingegeben werden. Die App löst Weiterleitungen auf, extrahiert Produktdaten und Coverbilder via Google Books sowie Open-Graph-Metadaten und übernimmt den Link direkt.
 
 ## Build
 
@@ -45,4 +49,4 @@ Nach Commit und Push des Workflows findest du `buecherregal-apk` unter **Actions
 ]
 ```
 
-Google Books wird ohne API-Schlüssel verwendet. Bei Amazon-Links sucht die App zunächst mit der Produktkennung, sofern sie als ISBN indexiert ist.
+Google Books wird ohne API-Schlüssel verwendet. Bei Produktlinks werden Kennungen, Weiterleitungen und Webseiten-Metadaten automatisch ausgewertet.

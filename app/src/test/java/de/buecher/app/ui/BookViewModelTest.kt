@@ -30,4 +30,9 @@ class BookViewModelTest {
     fun amazonProductLinkIsExtracted() {
         assertEquals("1234567890", extractAmazonProductId("https://www.amazon.de/dp/1234567890/ref=sr_1_1"))
     }
+
+    @Test
+    fun amazonMobileProductLinkIsExtracted() {
+        assertEquals("B08N5WRWNW", extractAmazonProductId("https://www.amazon.de/gp/aw/d/B08N5WRWNW"))
+    }
 }

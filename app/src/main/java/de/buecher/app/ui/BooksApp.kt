@@ -342,14 +342,16 @@ private fun BookFormScreen(
             viewModel.lookup(lookupText.trim())
         }
     }
-    LaunchedEffect(state.lookupResult) {
+    LaunchedEffect(state.lookupResult, lookupText) {
         state.lookupResult?.let { found ->
             title = found.title
             author = found.author
             if (found.pageCount > 0) pageCount = found.pageCount.toString()
             language = found.language
             cover = found.coverImageUrl
-            if (lookupText.contains("amazon.", ignoreCase = true)) amazonUrl = lookupText.trim()
+        }
+        if (lookupText.isNotBlank() && (lookupText.contains("http", ignoreCase = true) || lookupText.contains("amazon.", ignoreCase = true) || lookupText.contains("amzn.", ignoreCase = true) || lookupText.contains("www.", ignoreCase = true))) {
+            amazonUrl = lookupText.trim()
         }
     }
 
