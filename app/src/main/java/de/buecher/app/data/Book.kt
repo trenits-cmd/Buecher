@@ -2,19 +2,6 @@ package de.buecher.app.data
 
 import java.util.UUID
 
-enum class ReadingStatus(val label: String) {
-    READ("Gelesen"),
-    READING("Wird gelesen"),
-    PAUSED("Pausiert"),
-    UNREAD("Ungelesen");
-
-    companion object {
-        fun fromLabel(label: String): ReadingStatus {
-            return entries.find { it.label.equals(label, ignoreCase = true) } ?: UNREAD
-        }
-    }
-}
-
 data class Book(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "",

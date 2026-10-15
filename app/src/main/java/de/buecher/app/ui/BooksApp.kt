@@ -1681,12 +1681,6 @@ private fun progress(book: Book): Int = when {
     else -> (book.pagesRead.coerceIn(0, book.pageCount) * 100) / book.pageCount
 }
 
-private fun progressLabel(book: Book): String = if (book.pageCount > 0) {
-    "${book.pagesRead.coerceIn(0, book.pageCount)}/${book.pageCount} S."
-} else {
-    "Ungelesen"
-}
-
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun BookDropdownSelector(

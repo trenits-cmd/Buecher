@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -21,11 +21,11 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
-      - name: Java einrichten
+      - name: Java 21 einrichten
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
           cache: gradle
 
       - name: Android SDK einrichten
@@ -40,31 +40,49 @@ jobs:
       - name: Debug-APK bauen
         run: ./gradlew --no-daemon :app:assembleDebug
 
+      - name: APK vorbereiten
+        run: |
+          mkdir -p release
+          cp app/build/outputs/apk/debug/app-debug.apk release/Buecher-App.apk
+
       - name: APK als Actions-Artefakt hochladen
         uses: actions/upload-artifact@v4
         with:
           name: buecherregal-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: release/Buecher-App.apk
           if-no-files-found: error
           retention-days: 30
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
       - name: APK-Artefakt herunterladen
         uses: actions/download-artifact@v4
         with:
           name: buecherregal-apk
           path: release
 
-      - name: GitHub Release erstellen
+      - name: Tag "latest" aktualisieren (falls main branch)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f latest
+          git push -f origin latest || true
+
+      - name: GitHub Release erstellen oder aktualisieren
         uses: softprops/action-gh-release@v2
         with:
-          name: Bücher ${{ github.ref_name }}
-          generate_release_notes: true
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && format('Bücher {0}', github.ref_name) || 'Bücher App (Aktuellste Version)' }}
+          body: "Direkt installierbare Android-APK der Bücher-App."
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
           fail_on_unmatched_files: true
-          files: release/app-debug.apk
+          files: release/Buecher-App.apk

@@ -222,10 +222,6 @@ class BookRepository(context: Context) {
             }
     }
 
-    suspend fun findBook(input: String): GoogleBook? {
-        return findBooks(input).firstOrNull()
-    }
-
     private suspend fun searchOpenLibraryByIsbn(isbn: String): GoogleBook? {
         return try {
             val response = openLibrary.getBookByIsbn("ISBN:$isbn")
