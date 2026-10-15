@@ -52,6 +52,13 @@ data class YearlyGoalProgress(
     val percent: Int,
 )
 
+data class MonthlyPagesStats(
+    val monthIndex: Int,
+    val monthName: String,
+    val pages: Int,
+    val booksCount: Int,
+)
+
 data class BooksUiState(
     val config: GitHubConfig = GitHubConfig(),
     val token: String = "",
@@ -258,6 +265,43 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
                         book.pagesRead
                     }
                 }
+        }
+    }
+
+    fun getMonthlyPagesStats(books: List<Book>, year: Int?, language: String?): List<MonthlyPagesStats> {
+        val targetYear = year ?: Calendar.getInstance().get(Calendar.YEAR)
+        val completed = books.filter { it.isRead || it.status == "Gelesen" }
+        val filtered = completed.filter { book ->
+            val bookYear = effectiveFinishYear(book)
+            val matchYear = bookYear == targetYear
+            val matchLang = language == null || book.language.equals(language, ignoreCase = true)
+            matchYear && matchLang
+        }
+
+        val monthNames = listOf("Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez")
+        val pagesMap = mutableMapOf<Int, Int>()
+        val countMap = mutableMapOf<Int, Int>()
+
+        for (book in filtered) {
+            val cal = Calendar.getInstance()
+            if (book.finishDate != null && book.finishDate > 0) {
+                cal.timeInMillis = book.finishDate
+            } else {
+                cal.set(targetYear, Calendar.JANUARY, 1)
+            }
+            val m = cal.get(Calendar.MONTH)
+            val pages = if (book.pageCount > 0) book.pageCount else book.pagesRead
+            pagesMap[m] = (pagesMap[m] ?: 0) + pages
+            countMap[m] = (countMap[m] ?: 0) + 1
+        }
+
+        return monthNames.mapIndexed { index, name ->
+            MonthlyPagesStats(
+                monthIndex = index,
+                monthName = name,
+                pages = pagesMap[index] ?: 0,
+                booksCount = countMap[index] ?: 0,
+            )
         }
     }
 

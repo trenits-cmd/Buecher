@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -755,7 +756,7 @@ private fun LibraryScreen(books: List<Book>, onSelect: (Book) -> Unit, onAdd: ()
 private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSelect: (Book) -> Unit) {
     val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
     var selectedLanguageFilter by remember { mutableStateOf<String?>(null) }
-    var selectedYearFilter by remember { mutableStateOf<Int?>(null) }
+    var selectedYearFilter by remember { mutableStateOf<Int?>(currentYear) }
 
     val availableYears = remember(books) {
         (books.mapNotNull { it.finishYear } + currentYear).distinct().sortedDescending()
@@ -767,6 +768,12 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
 
     val langStats = remember(yearFilteredBooks) { viewModel.getLanguageStats(yearFilteredBooks) }
     val yearlyStats = remember(books) { viewModel.getYearlyStats(books) }
+    val monthlyStats = remember(books, selectedYearFilter, selectedLanguageFilter) {
+        viewModel.getMonthlyPagesStats(books, selectedYearFilter, selectedLanguageFilter)
+    }
+    val maxMonthlyPages = remember(monthlyStats) {
+        monthlyStats.maxOfOrNull { it.pages }?.coerceAtLeast(1) ?: 1
+    }
 
     val completed = remember(yearFilteredBooks) { yearFilteredBooks.filter { it.isRead || it.status == "Gelesen" } }
     val filteredBooks = remember(completed, selectedLanguageFilter) {
@@ -852,6 +859,44 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (selected) Color.White else Leaf,
                                 fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Monthly Pages Bar Chart
+        item {
+            Spacer(Modifier.height(8.dp))
+            Text("Seitenzahl pro Monat (Grafik)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(if (selectedYearFilter != null) "Jahr ${selectedYearFilter}" else "Alle Jahre", style = MaterialTheme.typography.bodySmall, color = Color(0xFF65716A))
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White,
+                shadowElevation = 1.dp,
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    monthlyStats.forEach { stat ->
+                        val fraction = (stat.pages.toFloat() / maxMonthlyPages.toFloat()).coerceIn(0f, 1f)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stat.monthName, modifier = Modifier.width(36.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF65716A))
+                            Box(Modifier.weight(1f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(SoftGreen)) {
+                                if (stat.pages > 0) {
+                                    Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(RoundedCornerShape(8.dp)).background(Leaf))
+                                }
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "${stat.pages} S.${if (stat.booksCount > 0) " (${stat.booksCount})" else ""}",
+                                modifier = Modifier.width(90.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Ink,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
                             )
                         }
                     }
