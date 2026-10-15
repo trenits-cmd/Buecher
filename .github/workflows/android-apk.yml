@@ -21,10 +21,10 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
-      - name: Java 21 (JetBrains Runtime) einrichten
-        uses: actions/setup-java@v4
+      - name: Java 21 (Temurin) einrichten
+        uses: actions/setup-java@v5
         with:
-          distribution: jbr
+          distribution: temurin
           java-version: 21
           cache: gradle
 
