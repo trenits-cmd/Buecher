@@ -297,12 +297,23 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
         return sb.toString()
     }
 
+    fun showNotice(message: String, isError: Boolean = false) {
+        _state.update {
+            if (isError) it.copy(error = message, notice = null)
+            else it.copy(notice = message, error = null)
+        }
+    }
+
     fun importCsv(csvContent: String) {
         viewModelScope.launch {
             try {
+                if (csvContent.isBlank()) {
+                    _state.update { it.copy(error = "Die ausgewählte CSV-Datei ist leer.") }
+                    return@launch
+                }
                 val newBooks = parseCsv(csvContent)
                 if (newBooks.isEmpty()) {
-                    _state.update { it.copy(error = "Keine gültigen Bücher in der CSV-Datei gefunden") }
+                    _state.update { it.copy(error = "Keine gültigen Bücher in der CSV-Datei gefunden. Bitte Spaltenüberschriften prüfen.") }
                     return@launch
                 }
                 val current = _state.value
@@ -311,9 +322,9 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
                     existingMap[book.id] = book
                 }
                 val mergedList = existingMap.values.toList()
-                persist(current, mergedList, "${newBooks.size} Bücher erfolgreich aus CSV importiert")
+                persist(current, mergedList, "${newBooks.size} Bücher erfolgreich aus CSV-Datei importiert")
             } catch (e: Exception) {
-                _state.update { it.copy(error = "Fehler beim Importieren der CSV-Datei") }
+                _state.update { it.copy(error = "Fehler beim Importieren der CSV-Datei: ${e.localizedMessage ?: "Ungültiges Format"}") }
             }
         }
     }

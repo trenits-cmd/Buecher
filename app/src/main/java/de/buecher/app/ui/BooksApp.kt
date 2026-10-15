@@ -123,13 +123,20 @@ fun BooksApp(viewModel: BookViewModel) {
     val csvImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-        uri?.let {
-            try {
-                val inputStream = context.contentResolver.openInputStream(it)
-                val csvText = inputStream?.bufferedReader()?.use { reader -> reader.readText() }.orEmpty()
+        if (uri == null) {
+            viewModel.showNotice("Import abgebrochen", isError = false)
+            return@rememberLauncherForActivityResult
+        }
+        try {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val csvText = inputStream?.bufferedReader()?.use { reader -> reader.readText() }.orEmpty()
+            if (csvText.isBlank()) {
+                viewModel.showNotice("Die ausgewählte CSV-Datei ist leer.", isError = true)
+            } else {
                 viewModel.importCsv(csvText)
-            } catch (_: Exception) {
             }
+        } catch (e: Exception) {
+            viewModel.showNotice("Fehler beim Lesen der Datei: ${e.localizedMessage ?: "Datei nicht lesbar"}", isError = true)
         }
     }
 
@@ -161,17 +168,24 @@ fun BooksApp(viewModel: BookViewModel) {
                             Icon(Icons.Default.FileOpen, contentDescription = "CSV Importieren")
                         }
                         IconButton(onClick = {
-                            val csv = viewModel.exportCsv(state.books)
-                            val sendIntent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                putExtra(Intent.EXTRA_SUBJECT, "Bücherregal Backup (CSV)")
-                                putExtra(Intent.EXTRA_TEXT, csv)
-                                type = "text/csv"
-                            }
-                            val shareIntent = Intent.createChooser(sendIntent, "CSV Backup exportieren")
                             try {
+                                if (state.books.isEmpty()) {
+                                    viewModel.showNotice("Keine Bücher zum Exportieren vorhanden", isError = true)
+                                    return@IconButton
+                                }
+                                val csv = viewModel.exportCsv(state.books)
+                                val sendIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_SUBJECT, "Bücherregal Backup (CSV)")
+                                    putExtra(Intent.EXTRA_TEXT, csv)
+                                    type = "text/csv"
+                                }
+                                val shareIntent = Intent.createChooser(sendIntent, "CSV Backup exportieren")
                                 context.startActivity(shareIntent)
-                            } catch (_: Exception) {}
+                                viewModel.showNotice("${state.books.size} Bücher als CSV exportiert", isError = false)
+                            } catch (e: Exception) {
+                                viewModel.showNotice("Fehler beim Exportieren: ${e.localizedMessage ?: "Unbekannter Fehler"}", isError = true)
+                            }
                         }) {
                             Icon(Icons.Default.Share, contentDescription = "CSV Backup exportieren")
                         }
