@@ -3,6 +3,7 @@ package de.buecher.app.ui
 import android.app.DatePickerDialog
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -71,6 +73,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -115,9 +118,37 @@ private sealed interface AppScreen {
 @OptIn(ExperimentalMaterial3Api::class)
 fun BooksApp(viewModel: BookViewModel) {
     val state by viewModel.state.collectAsState()
-    var screen by remember { mutableStateOf<AppScreen>(AppScreen.Dashboard) }
+    val backStack = remember { mutableStateListOf<AppScreen>(AppScreen.Dashboard) }
+    val currentScreen = backStack.lastOrNull() ?: AppScreen.Dashboard
     var settingsOpen by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<Book?>(null) }
+
+    fun navigateTo(target: AppScreen) {
+        if (backStack.lastOrNull() != target) {
+            if (target is AppScreen.Dashboard) {
+                backStack.clear()
+                backStack.add(AppScreen.Dashboard)
+            } else {
+                backStack.add(target)
+            }
+        }
+    }
+
+    fun goBack() {
+        if (backStack.size > 1) {
+            backStack.removeAt(backStack.size - 1)
+        }
+    }
+
+    BackHandler(enabled = settingsOpen || deleteTarget != null || backStack.size > 1) {
+        if (settingsOpen) {
+            settingsOpen = false
+        } else if (deleteTarget != null) {
+            deleteTarget = null
+        } else if (backStack.size > 1) {
+            backStack.removeAt(backStack.size - 1)
+        }
+    }
     val context = LocalContext.current
 
     val csvImportLauncher = rememberLauncherForActivityResult(
@@ -199,44 +230,44 @@ fun BooksApp(viewModel: BookViewModel) {
                 )
             },
             bottomBar = {
-                if (screen is AppScreen.Dashboard || screen is AppScreen.Library || screen is AppScreen.Statistics || screen is AppScreen.Archive) {
+                if (currentScreen is AppScreen.Dashboard || currentScreen is AppScreen.Library || currentScreen is AppScreen.Statistics || currentScreen is AppScreen.Archive) {
                     NavigationBar(containerColor = Color.White) {
                         NavigationBarItem(
                             icon = { Icon(Icons.Default.Home, contentDescription = "Dashboard") },
                             label = { Text("Dashboard") },
-                            selected = screen is AppScreen.Dashboard,
-                            onClick = { screen = AppScreen.Dashboard },
+                            selected = currentScreen is AppScreen.Dashboard,
+                            onClick = { navigateTo(AppScreen.Dashboard) },
                             colors = NavigationBarItemDefaults.colors(selectedIconColor = Leaf, selectedTextColor = Leaf),
                         )
                         NavigationBarItem(
                             icon = { Icon(Icons.Default.MenuBook, contentDescription = "Regal") },
                             label = { Text("Regal") },
-                            selected = screen is AppScreen.Library,
-                            onClick = { screen = AppScreen.Library },
+                            selected = currentScreen is AppScreen.Library,
+                            onClick = { navigateTo(AppScreen.Library) },
                             colors = NavigationBarItemDefaults.colors(selectedIconColor = Leaf, selectedTextColor = Leaf),
                         )
                         NavigationBarItem(
                             icon = { Icon(Icons.Default.BarChart, contentDescription = "Statistik") },
                             label = { Text("Statistik") },
-                            selected = screen is AppScreen.Statistics,
-                            onClick = { screen = AppScreen.Statistics },
+                            selected = currentScreen is AppScreen.Statistics,
+                            onClick = { navigateTo(AppScreen.Statistics) },
                             colors = NavigationBarItemDefaults.colors(selectedIconColor = Leaf, selectedTextColor = Leaf),
                         )
                         NavigationBarItem(
                             icon = { Icon(Icons.Default.Archive, contentDescription = "Archiv") },
                             label = { Text("Archiv") },
-                            selected = screen is AppScreen.Archive,
-                            onClick = { screen = AppScreen.Archive },
+                            selected = currentScreen is AppScreen.Archive,
+                            onClick = { navigateTo(AppScreen.Archive) },
                             colors = NavigationBarItemDefaults.colors(selectedIconColor = Leaf, selectedTextColor = Leaf),
                         )
                     }
                 }
             },
             floatingActionButton = {
-                if (screen == AppScreen.Library || screen == AppScreen.Dashboard) {
+                if (currentScreen == AppScreen.Library || currentScreen == AppScreen.Dashboard) {
                     FloatingActionButton(onClick = {
                         viewModel.clearLookup()
-                        screen = AppScreen.Form(null)
+                        navigateTo(AppScreen.Form(null))
                     }, containerColor = Leaf, contentColor = Color.White) {
                         Icon(Icons.Default.Add, contentDescription = "Buch hinzufügen")
                     }
@@ -248,47 +279,51 @@ fun BooksApp(viewModel: BookViewModel) {
                 state.error?.let { MessageBanner(it, isError = true) { viewModel.dismissMessages() } }
                 state.notice?.let { MessageBanner(it, isError = false) { viewModel.dismissMessages() } }
 
-                when (val currentScreen = screen) {
+                when (val screen = currentScreen) {
                     AppScreen.Dashboard -> DashboardScreen(
                         books = state.books,
                         viewModel = viewModel,
-                        onSelect = { screen = AppScreen.Details(it) },
+                        onSelect = { navigateTo(AppScreen.Details(it)) },
                     )
                     AppScreen.Library -> LibraryScreen(
                         books = state.books,
-                        onSelect = { screen = AppScreen.Details(it) },
-                        onAdd = { screen = AppScreen.Form(null) },
+                        onSelect = { navigateTo(AppScreen.Details(it)) },
+                        onAdd = { navigateTo(AppScreen.Form(null)) },
                         onStatusChange = { updated -> viewModel.save(updated) },
                     )
                     AppScreen.Statistics -> StatisticsScreen(
                         books = state.books,
                         viewModel = viewModel,
-                        onSelect = { screen = AppScreen.Details(it) },
+                        onSelect = { navigateTo(AppScreen.Details(it)) },
                     )
                     AppScreen.Archive -> ArchiveScreen(
                         books = state.books,
-                        onSelect = { screen = AppScreen.Details(it) },
+                        onSelect = { navigateTo(AppScreen.Details(it)) },
                         onStatusChange = { updated -> viewModel.save(updated) },
                     )
                     is AppScreen.Details -> BookDetailsScreen(
-                        book = currentScreen.book,
-                        onBack = { screen = AppScreen.Library },
-                        onEdit = { screen = AppScreen.Form(currentScreen.book) },
-                        onDelete = { deleteTarget = currentScreen.book },
+                        book = screen.book,
+                        onBack = { goBack() },
+                        onEdit = { navigateTo(AppScreen.Form(screen.book)) },
+                        onDelete = { deleteTarget = screen.book },
                         onProgress = { updated ->
-                            screen = AppScreen.Details(updated)
                             viewModel.save(updated)
+                            if (backStack.isNotEmpty()) {
+                                backStack[backStack.size - 1] = AppScreen.Details(updated)
+                            }
                         },
                     )
                     is AppScreen.Form -> BookFormScreen(
-                        original = currentScreen.book,
-                        formKey = currentScreen.formKey,
+                        original = screen.book,
+                        formKey = screen.formKey,
                         state = state,
                         viewModel = viewModel,
-                        onCancel = { screen = if (currentScreen.book == null) AppScreen.Dashboard else AppScreen.Details(currentScreen.book) },
-                        onSave = {
-                            viewModel.save(it)
-                            screen = AppScreen.Details(it)
+                        onCancel = { goBack() },
+                        onSave = { updated ->
+                            viewModel.save(updated)
+                            if (backStack.isNotEmpty()) {
+                                backStack[backStack.size - 1] = AppScreen.Details(updated)
+                            }
                         },
                     )
                 }
@@ -316,7 +351,7 @@ fun BooksApp(viewModel: BookViewModel) {
                     TextButton(onClick = {
                         viewModel.delete(book)
                         deleteTarget = null
-                        screen = AppScreen.Library
+                        goBack()
                     }) { Text("Löschen", color = MaterialTheme.colorScheme.error) }
                 },
                 dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Abbrechen") } },
@@ -755,7 +790,7 @@ private fun LibraryScreen(books: List<Book>, onSelect: (Book) -> Unit, onAdd: ()
 private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSelect: (Book) -> Unit) {
     val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
     var selectedLanguageFilter by remember { mutableStateOf<String?>(null) }
-    var selectedYearFilter by remember { mutableStateOf<Int?>(null) }
+    var selectedYearFilter by remember { mutableStateOf<Int?>(currentYear) }
 
     val availableYears = remember(books) {
         (books.mapNotNull { it.finishYear } + currentYear).distinct().sortedDescending()
@@ -767,6 +802,12 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
 
     val langStats = remember(yearFilteredBooks) { viewModel.getLanguageStats(yearFilteredBooks) }
     val yearlyStats = remember(books) { viewModel.getYearlyStats(books) }
+    val monthlyStats = remember(books, selectedYearFilter, selectedLanguageFilter) {
+        viewModel.getMonthlyPagesStats(books, selectedYearFilter, selectedLanguageFilter)
+    }
+    val maxMonthlyPages = remember(monthlyStats) {
+        monthlyStats.maxOfOrNull { it.pages }?.coerceAtLeast(1) ?: 1
+    }
 
     val completed = remember(yearFilteredBooks) { yearFilteredBooks.filter { it.isRead || it.status == "Gelesen" } }
     val filteredBooks = remember(completed, selectedLanguageFilter) {
@@ -852,6 +893,44 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (selected) Color.White else Leaf,
                                 fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Monthly Pages Bar Chart
+        item {
+            Spacer(Modifier.height(8.dp))
+            Text("Seitenzahl pro Monat (Grafik)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(if (selectedYearFilter != null) "Jahr ${selectedYearFilter}" else "Alle Jahre", style = MaterialTheme.typography.bodySmall, color = Color(0xFF65716A))
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White,
+                shadowElevation = 1.dp,
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    monthlyStats.forEach { stat ->
+                        val fraction = (stat.pages.toFloat() / maxMonthlyPages.toFloat()).coerceIn(0f, 1f)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stat.monthName, modifier = Modifier.width(36.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF65716A))
+                            Box(Modifier.weight(1f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(SoftGreen)) {
+                                if (stat.pages > 0) {
+                                    Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(RoundedCornerShape(8.dp)).background(Leaf))
+                                }
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "${stat.pages} S.${if (stat.booksCount > 0) " (${stat.booksCount})" else ""}",
+                                modifier = Modifier.width(90.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Ink,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
                             )
                         }
                     }

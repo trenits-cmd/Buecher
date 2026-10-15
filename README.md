@@ -1,52 +1,36 @@
-# Bücherregal für Android
+# Bücher – Native Android Reading Management App
 
-Native Android-App mit Kotlin und Jetpack Compose. Bücher werden als `buecher.json` in einem GitHub-Repository gespeichert; Titel, ISBN und Produktlinks (z. B. Amazon, Shop-URLs oder Kurz-Links) können automatisch über Google Books und Web-Metadaten ergänzt werden.
+„Bücher“ ist eine moderne, native Android-Lese- und Bücherregal-Verwaltung entwickelt mit **Jetpack Compose (Material 3)** und **Kotlin**.
 
-## Voraussetzungen
+## Hauptmerkmale
 
-- Android Studio mit Android SDK Platform 35
-- JDK 17 (für den Gradle-Wrapper 8.13 empfohlen)
-- Ein GitHub-Repository und ein Personal Access Token mit Lese- und Schreibzugriff auf dessen Inhalte
+- **Regal & Bibliothek:** Verwaltung von Büchern nach Status (*Ungelesen*, *Wird gelesen*, *Pausiert*, *Gelesen*), Sprache (*Deutsch*, *Englisch*, *Französisch*) und kombinierten Sprach- und Status-Filtern.
+- **Aktive Lektüre & Leseprognose:** Intelligente Berechnung des Lesetempos (Seiten pro Tag) und geschätzter Fertigstellungstermin für aktive Bücher (filterbar nach Sprache).
+- **Jahres-Leseziel & Statistiken:** Anpassbares jährliches Leseziel mit Fortschrittsbalken, Sprachstatistiken und Jahresübersicht.
+- **Monatliche Lesegrafik:** Interaktives monatliches Balkendiagramm (Januar–Dezember) für gelesene Seiten, filterbar nach Jahr und Sprache.
+- **Archiv:** Archiv für gelesene Bücher, filterbar nach Sprache, Sternebewertung und Beendigungsjahr, inklusive durchschnittlicher Seitenzahl pro Tag (Ø S./Tag).
+- **Mehrquellen-Suche & URL-Parsing:** Automatische Suche über **Open Library** und **Google Books** sowie automatisches Auflösen von Amazon- und Web-Links.
+- **Speicherung & Cloud-Sync:** Lokaler SharedPreferences-Cache + optionaler Remote-Sync über ein GitHub-Repository (`buecher.json`).
+- **CSV Backup Export & Import:** Vollständiges Sichern und Wiederherstellen der gesamten Bibliothek (inklusive aller 13 Datenfelder wie ID, Titel, Autor, Sprache, Seiten, Status, Bewertungen, Cover-URLs, Amazon-Links und Lesedaten) über CSV-Dateien mit Direktfeedback.
+- **Automatisierte APK-Erstellung (CI/CD):** GitHub Actions Workflow (`android-apk.yml`) mit Java 21 für automatisierte Builds und Releases (`Buecher-App.apk`).
 
-## Start
+## Tech Stack
 
-1. Das Projekt in Android Studio öffnen und die Gradle-Synchronisierung abwarten.
-2. Die App starten und über das Zahnrad GitHub-Benutzer/Organisation, Repository, Branch und Token eintragen.
-3. `buecher.json` wird beim ersten Speichern im gewählten Branch angelegt.
+- **UI:** Jetpack Compose, Material 3, Coil
+- **Architektur & State:** MVVM, Kotlin Coroutines, StateFlow
+- **Netzwerk & Daten:** Retrofit 2, Gson, GitHub REST API, Google Books API, Open Library API
+- **Build System:** Gradle 8.13, AGP 8.8.2, Java 21 (Temurin / Adoptium)
 
-Der Token bleibt nur im Arbeitsspeicher der laufenden App und wird nach einem App-Neustart erneut abgefragt. Repository, Branch und Benutzername werden lokal gespeichert.
-
-## Buch hinzufügen / URLs laden
-
-Beim Hinzufügen eines Buches können Titel, ISBN oder beliebige Produkt-URLs (inklusive Amazon-Links, Kurz-Links wie `amzn.to` oder `amzn.eu` und Shop-Seiten) eingegeben werden. Die App löst Weiterleitungen auf, extrahiert Produktdaten und Coverbilder via Google Books sowie Open-Graph-Metadaten und übernimmt den Link direkt.
-
-## Build
+## Build & Test
 
 ```bash
+# Debug APK bauen
 ./gradlew :app:assembleDebug
+
+# Unit-Tests ausführen
+./gradlew :app:testDebugUnitTest
 ```
 
-## APK von GitHub herunterladen
+## GitHub Actions & APK Download
 
-Nach Commit und Push des Workflows findest du `buecherregal-apk` unter **Actions → Android APK → letzter erfolgreicher Lauf → Artifacts**. Ein Push eines Versions-Tags wie `v1.0.0` erstellt zusätzlich ein GitHub Release mit `app-debug.apk` im Bereich **Releases** des Repositories. Das APK ist debug-signiert und für Installation und Tests gedacht.
-
-## JSON-Format
-
-```json
-[
-	{
-		"id": "eindeutige-id",
-		"title": "Beispieltitel",
-		"author": "Beispielautor",
-		"pageCount": 320,
-		"language": "de",
-		"rating": 4,
-		"isRead": false,
-		"coverImageUrl": "https://example.org/cover.jpg",
-		"amazonUrl": "https://www.amazon.de/dp/1234567890",
-		"pagesRead": 80
-	}
-]
-```
-
-Google Books wird ohne API-Schlüssel verwendet. Bei Produktlinks werden Kennungen, Weiterleitungen und Webseiten-Metadaten automatisch ausgewertet.
+Jeder Push auf den `main`-Branch triggert den GitHub Actions Workflow. Die direkt installierbare Android-App (**`Buecher-App.apk`**) steht automatisch im Bereich **Releases** des GitHub-Repositories zum 1-Klick-Download bereit.
