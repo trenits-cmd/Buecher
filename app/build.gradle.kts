@@ -21,6 +21,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
+    java {
+        toolchain {
+            languageVersion.set(JavaLanguageVersion.of(21))
+        }
+    }
+
     kotlinOptions {
         jvmTarget = "21"
     }
