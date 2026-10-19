@@ -21,11 +21,11 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
-      - name: Java 21 (Temurin) einrichten
+      - name: Java 17 (Temurin) einrichten
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 17
           cache: gradle
 
       - name: Android SDK einrichten
