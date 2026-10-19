@@ -791,9 +791,10 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
     val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
     var selectedLanguageFilter by remember { mutableStateOf<String?>(null) }
     var selectedYearFilter by remember { mutableStateOf<Int?>(currentYear) }
+    var selectedMonthFilter by remember { mutableStateOf<Int?>(null) }
 
     val availableYears = remember(books) {
-        (books.mapNotNull { it.finishYear } + currentYear).distinct().sortedDescending()
+        (books.mapNotNull { effectiveFinishYear(it) } + currentYear).distinct().sortedDescending()
     }
 
     val yearFilteredBooks = remember(books, selectedYearFilter) {
@@ -809,9 +810,28 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
         monthlyStats.maxOfOrNull { it.pages }?.coerceAtLeast(1) ?: 1
     }
 
-    val completed = remember(yearFilteredBooks) { yearFilteredBooks.filter { it.isRead || it.status == "Gelesen" } }
-    val filteredBooks = remember(completed, selectedLanguageFilter) {
-        if (selectedLanguageFilter == null) completed else completed.filter { it.language.equals(selectedLanguageFilter, ignoreCase = true) }
+    val langFilteredBooks = remember(yearFilteredBooks, selectedLanguageFilter) {
+        if (selectedLanguageFilter == null) yearFilteredBooks else yearFilteredBooks.filter { it.language.equals(selectedLanguageFilter, ignoreCase = true) }
+    }
+
+    val filteredBooks = remember(langFilteredBooks, selectedMonthFilter, selectedYearFilter) {
+        if (selectedMonthFilter == null) langFilteredBooks
+        else langFilteredBooks.filter { book ->
+            val bookMonth = when {
+                book.finishDate != null && book.finishDate > 0 -> {
+                    val cal = Calendar.getInstance()
+                    cal.timeInMillis = book.finishDate
+                    cal.get(Calendar.MONTH)
+                }
+                book.startDate > 0 -> {
+                    val cal = Calendar.getInstance()
+                    cal.timeInMillis = book.startDate
+                    cal.get(Calendar.MONTH)
+                }
+                else -> 0
+            }
+            bookMonth == selectedMonthFilter
+        }
     }
 
     LazyColumn(
@@ -905,7 +925,7 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
             Spacer(Modifier.height(8.dp))
             Text("Seitenzahl pro Monat (Grafik)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
-            Text(if (selectedYearFilter != null) "Jahr ${selectedYearFilter}" else "Alle Jahre", style = MaterialTheme.typography.bodySmall, color = Color(0xFF65716A))
+            Text(if (selectedYearFilter != null) "Jahr ${selectedYearFilter}${if (selectedMonthFilter != null) " • Monat: ${listOf("Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez")[selectedMonthFilter!!]}" else ""}" else "Alle Jahre", style = MaterialTheme.typography.bodySmall, color = Color(0xFF65716A))
             Spacer(Modifier.height(8.dp))
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -915,23 +935,38 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     monthlyStats.forEach { stat ->
+                        val isSelectedMonth = selectedMonthFilter == stat.monthIndex
                         val fraction = (stat.pages.toFloat() / maxMonthlyPages.toFloat()).coerceIn(0f, 1f)
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(stat.monthName, modifier = Modifier.width(36.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF65716A))
-                            Box(Modifier.weight(1f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(SoftGreen)) {
-                                if (stat.pages > 0) {
-                                    Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(RoundedCornerShape(8.dp)).background(Leaf))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                selectedMonthFilter = if (isSelectedMonth) null else stat.monthIndex
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelectedMonth) SoftGreen else Color.Transparent,
+                        ) {
+                            Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    stat.monthName,
+                                    modifier = Modifier.width(36.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelectedMonth) Leaf else Color(0xFF65716A),
+                                )
+                                Box(Modifier.weight(1f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(SoftGreen)) {
+                                    if (stat.pages > 0) {
+                                        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(RoundedCornerShape(8.dp)).background(if (isSelectedMonth) Color(0xFF1E5644) else Leaf))
+                                    }
                                 }
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "${stat.pages} S.${if (stat.booksCount > 0) " (${stat.booksCount})" else ""}",
+                                    modifier = Modifier.width(90.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Ink,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                )
                             }
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "${stat.pages} S.${if (stat.booksCount > 0) " (${stat.booksCount})" else ""}",
-                                modifier = Modifier.width(90.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Ink,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                            )
                         }
                     }
                 }
@@ -994,10 +1029,11 @@ private fun StatisticsScreen(books: List<Book>, viewModel: BookViewModel, onSele
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Gefilterte Bücher (${filteredBooks.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                if (selectedLanguageFilter != null || selectedYearFilter != null) {
+                if (selectedLanguageFilter != null || selectedYearFilter != null || selectedMonthFilter != null) {
                     TextButton(onClick = {
                         selectedLanguageFilter = null
                         selectedYearFilter = null
+                        selectedMonthFilter = null
                     }) { Text("Filter zurücksetzen", color = Leaf) }
                 }
             }

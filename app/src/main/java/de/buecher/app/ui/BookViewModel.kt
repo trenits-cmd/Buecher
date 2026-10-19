@@ -270,8 +270,7 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
 
     fun getMonthlyPagesStats(books: List<Book>, year: Int?, language: String?): List<MonthlyPagesStats> {
         val targetYear = year ?: Calendar.getInstance().get(Calendar.YEAR)
-        val completed = books.filter { it.isRead || it.status == "Gelesen" }
-        val filtered = completed.filter { book ->
+        val filtered = books.filter { book ->
             val bookYear = effectiveFinishYear(book)
             val matchYear = bookYear == targetYear
             val matchLang = language == null || book.language.equals(language, ignoreCase = true)
@@ -284,13 +283,22 @@ class BookViewModel(private val repository: BookRepository) : ViewModel() {
 
         for (book in filtered) {
             val cal = Calendar.getInstance()
-            if (book.finishDate != null && book.finishDate > 0) {
-                cal.timeInMillis = book.finishDate
-            } else {
-                cal.set(targetYear, Calendar.JANUARY, 1)
+            val m = when {
+                book.finishDate != null && book.finishDate > 0 -> {
+                    cal.timeInMillis = book.finishDate
+                    cal.get(Calendar.MONTH)
+                }
+                book.startDate > 0 -> {
+                    cal.timeInMillis = book.startDate
+                    cal.get(Calendar.MONTH)
+                }
+                else -> 0
             }
-            val m = cal.get(Calendar.MONTH)
-            val pages = if (book.pageCount > 0) book.pageCount else book.pagesRead
+            val pages = if (book.isRead || book.status == "Gelesen") {
+                if (book.pageCount > 0) book.pageCount else book.pagesRead
+            } else {
+                book.pagesRead
+            }
             pagesMap[m] = (pagesMap[m] ?: 0) + pages
             countMap[m] = (countMap[m] ?: 0) + 1
         }
@@ -499,6 +507,11 @@ internal fun effectiveFinishYear(book: Book): Int {
     }
     if (book.finishYear != null && book.finishYear > 0) {
         return book.finishYear
+    }
+    if (book.startDate > 0) {
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = book.startDate
+        return cal.get(Calendar.YEAR)
     }
     return Calendar.getInstance().get(Calendar.YEAR)
 }
